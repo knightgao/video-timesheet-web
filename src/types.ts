@@ -5,6 +5,20 @@ export type VideoMeta = {
   name: string;
 };
 
+export type BackgroundMode = 'none' | 'color-key';
+
+export type ExportMode = 'sheet' | 'transparent-sheet' | 'transparent-frames-zip';
+
+export type PreviewMode = 'result' | 'mask';
+
+export type KeyAlgorithm = 'enhanced' | 'classic';
+
+export type RGBColor = {
+  r: number;
+  g: number;
+  b: number;
+};
+
 export type ExtractionOptions = {
   frameCount: number;
   includeTimestamps: boolean;
@@ -29,6 +43,30 @@ export type ExtractedFrame = {
   label: string;
 };
 
+export type ColorSample = {
+  x: number;
+  y: number;
+  hex: string;
+  rgb: RGBColor;
+};
+
+export type ColorKeyOptions = {
+  sample: ColorSample;
+  tolerance: number;
+  softness: number;
+  despill: number;
+  sampleRadius: number;
+  edgeRadius: number;
+  smoothing: boolean;
+  despillEnabled: boolean;
+  algorithm: KeyAlgorithm;
+};
+
+export type ProcessedFrame = ExtractedFrame & {
+  processedImage: HTMLCanvasElement;
+  maskImage: HTMLCanvasElement;
+};
+
 export type LayoutMetrics = {
   rows: number;
   canvasWidth: number;
@@ -38,3 +76,7 @@ export type LayoutMetrics = {
   labelBlockHeight: number;
 };
 
+export type SheetAppearance = {
+  transparentBackground: boolean;
+  showCardBackground: boolean;
+};

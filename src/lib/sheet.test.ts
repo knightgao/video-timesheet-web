@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getLayoutMetrics } from './sheet';
+import { getLayoutMetrics, getSheetAppearance } from './sheet';
 import type { SheetOptions, VideoMeta } from '../types';
 
 const meta: VideoMeta = {
@@ -35,6 +35,13 @@ describe('getLayoutMetrics', () => {
       frameWidth: 320,
       frameHeight: 180,
       labelBlockHeight: 30,
+    });
+  });
+
+  it('uses a transparent appearance for transparent exports', () => {
+    expect(getSheetAppearance(true)).toEqual({
+      transparentBackground: true,
+      showCardBackground: false,
     });
   });
 });

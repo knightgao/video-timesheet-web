@@ -2,6 +2,7 @@ import type {
   ExtractedFrame,
   LayoutMetrics,
   RenderResult,
+  SheetAppearance,
   SheetOptions,
   VideoMeta,
 } from '../types';
@@ -34,6 +35,18 @@ export function getLayoutMetrics(
     frameHeight,
     labelBlockHeight,
   };
+}
+
+export function getSheetAppearance(transparent: boolean): SheetAppearance {
+  return transparent
+    ? {
+        transparentBackground: true,
+        showCardBackground: false,
+      }
+    : {
+        transparentBackground: false,
+        showCardBackground: true,
+      };
 }
 
 function fillRoundedRect(
@@ -72,6 +85,7 @@ export async function renderFrameSheet(
   meta: VideoMeta,
   sheetOptions: SheetOptions,
   includeTimestamps: boolean,
+  appearance: SheetAppearance = getSheetAppearance(false),
 ): Promise<RenderResult> {
   const metrics = getLayoutMetrics(meta, frames.length, sheetOptions, includeTimestamps);
   const canvas = document.createElement('canvas');
@@ -83,8 +97,13 @@ export async function renderFrameSheet(
     throw new Error('当前浏览器无法创建最终导出画布。');
   }
 
-  context.fillStyle = sheetOptions.backgroundColor;
-  context.fillRect(0, 0, canvas.width, canvas.height);
+  if (appearance.transparentBackground) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+  } else {
+    context.fillStyle = sheetOptions.backgroundColor;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
   context.font = `600 ${LABEL_FONT_SIZE}px "Avenir Next", "PingFang SC", sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
@@ -97,15 +116,17 @@ export async function renderFrameSheet(
     const x = sheetOptions.gap + column * (metrics.frameWidth + sheetOptions.gap);
     const y = sheetOptions.gap + row * (cardHeight + sheetOptions.gap);
 
-    context.fillStyle = 'rgba(16, 24, 40, 0.08)';
-    fillRoundedRect(
-      context,
-      x,
-      y,
-      metrics.frameWidth,
-      metrics.frameHeight + metrics.labelBlockHeight + CARD_PADDING * 2,
-      16,
-    );
+    if (appearance.showCardBackground) {
+      context.fillStyle = 'rgba(16, 24, 40, 0.08)';
+      fillRoundedRect(
+        context,
+        x,
+        y,
+        metrics.frameWidth,
+        metrics.frameHeight + metrics.labelBlockHeight + CARD_PADDING * 2,
+        16,
+      );
+    }
 
     context.drawImage(
       frame.image,
@@ -134,4 +155,3 @@ export async function renderFrameSheet(
     outputHeight: canvas.height,
   };
 }
-
