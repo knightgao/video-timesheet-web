@@ -43,6 +43,24 @@ const DEFAULT_EDGE_RADIUS = 22;
 const DEFAULT_SAMPLE_RADIUS = 6;
 const DEFAULT_SOLID_PREVIEW_BG = '#111827';
 const MAX_EXTRACTED_FRAMES = 180;
+const BRAND_ASSET_PATH = `${import.meta.env.BASE_URL}logo.jpg`;
+const SUPPORT_LINKS = [
+  {
+    id: 'bilibili',
+    label: 'B站',
+    href: 'https://space.bilibili.com/13406042',
+  },
+  {
+    id: 'douyin',
+    label: '抖音',
+    href: 'https://www.douyin.com/user/MS4wLjABAAAAycVZEUWkD8Jwx8_Mu5E4TVdR8MkFlX0xNtEhEq5mOQKHeG9m3bDt-Q_PVGkQuDAA',
+  },
+  {
+    id: 'xiaohongshu',
+    label: '小红书',
+    href: 'https://www.xiaohongshu.com/user/profile/5f7310700000000001002626',
+  },
+] as const;
 
 type SamplePoint = {
   x: number;
@@ -58,6 +76,10 @@ type SheetPreviewResult = {
   renderResult: RenderResult;
   transparent: boolean;
 };
+
+type ResultPreviewMode = 'sheet' | 'animation';
+
+type SupportPlatform = (typeof SUPPORT_LINKS)[number]['id'];
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
@@ -125,7 +147,52 @@ function toTransparentSheetFrames(processedFrames: ProcessedFrame[]): ExtractedF
   }));
 }
 
+function SupportLogo({ platform }: { platform: SupportPlatform }) {
+  if (platform === 'bilibili') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4.5" y="7" width="15" height="10.5" rx="2.8" fill="none" stroke="currentColor" strokeWidth="1.9" />
+        <path d="M8.4 4.5 6.8 6.7M15.6 4.5l1.6 2.2" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M9.2 11.1v2.2M14.8 11.1v2.2" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M8.5 15.3c1.1.7 2.2 1 3.5 1 1.3 0 2.4-.3 3.5-1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (platform === 'douyin') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M13.2 4.5c1.2 1.8 2.6 3 4.6 3.6v2.6c-1.5-.1-2.9-.6-4-1.4v5.5a4.7 4.7 0 1 1-4.7-4.6c.4 0 .8 0 1.2.1v2.8a2 2 0 1 0 .8 1.7V4.5h2.1Z"
+          fill="currentColor"
+        />
+        <path
+          d="M11.7 4.5v10.3a2 2 0 1 1-2-2c.2 0 .5 0 .7.1v-2.8a4.8 4.8 0 1 0 4.1 4.7V9.3c1.1.8 2.5 1.3 4 1.4V8.1c-2-.6-3.4-1.8-4.6-3.6h-2.2Z"
+          fill="#25F4EE"
+          opacity="0.9"
+        />
+        <path
+          d="M12.5 4.1c1.2 1.8 2.6 3 4.6 3.6v2.6c-1.5-.1-2.9-.6-4-1.4v5.5a4.7 4.7 0 1 1-4.7-4.6c.4 0 .8 0 1.2.1v2.8a2 2 0 1 0 .8 1.7V4.1h2.1Z"
+          fill="#FE2C55"
+          opacity="0.88"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3.5" y="5" width="17" height="14" rx="4.2" fill="currentColor" />
+      <path
+        d="M8 9.1h3.1v1.4H9.7v.8h1.2c1.5 0 2.4.8 2.4 2.1 0 1.4-1 2.3-2.6 2.3H8v-1.4h2.4c.7 0 1.1-.3 1.1-.8s-.4-.8-1.1-.8H8V9.1Zm6.6 0h1.5l-1.4 2.7 1.5 3.9h-1.6l-.8-2.2-.8 2.2h-1.5l1.5-3.9-1.4-2.7h1.5l.7 1.7.8-1.7Z"
+        fill="#fff"
+      />
+    </svg>
+  );
+}
+
 function App() {
+  const currentYear = new Date().getFullYear();
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isChromaStageOpen, setIsChromaStageOpen] = useState(false);
@@ -151,6 +218,9 @@ function App() {
   const [solidPreviewColor, setSolidPreviewColor] = useState(DEFAULT_SOLID_PREVIEW_BG);
   const [result, setResult] = useState<RenderResult | null>(null);
   const [resultTransparent, setResultTransparent] = useState(false);
+  const [resultPreviewMode, setResultPreviewMode] = useState<ResultPreviewMode>('sheet');
+  const [animationPlaying, setAnimationPlaying] = useState(true);
+  const [animationFrameIndex, setAnimationFrameIndex] = useState(0);
   const [status, setStatus] = useState('请选择一个本地视频开始生成。');
   const [isDragging, setIsDragging] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -163,6 +233,7 @@ function App() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const resultAnimationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const controlsPanelRef = useRef<HTMLDivElement | null>(null);
   const chromaPanelRef = useRef<HTMLElement | null>(null);
   const chromaActionsRef = useRef<HTMLDivElement | null>(null);
@@ -249,6 +320,13 @@ function App() {
   );
   const showChromaStage = Boolean(videoMeta && isChromaStageOpen);
   const showResultStage = Boolean(result);
+  const animationFrames = useMemo<ExtractedFrame[]>(() => {
+    if (processedFrames) {
+      return toTransparentSheetFrames(processedFrames);
+    }
+
+    return extractedFrames ?? [];
+  }, [extractedFrames, processedFrames]);
 
   function scrollToStep(target: { current: HTMLElement | null }): void {
     window.setTimeout(() => {
@@ -279,6 +357,9 @@ function App() {
     setExtractedFrames(null);
     setProcessedFrames(null);
     replacePreviewResult(null);
+    setResultPreviewMode('sheet');
+    setAnimationFrameIndex(0);
+    setAnimationPlaying(true);
     if (nextStatus) {
       setStatus(nextStatus);
     }
@@ -449,6 +530,43 @@ function App() {
       previewMode === 'solid' ? solidPreviewColor : undefined,
     );
   }, [previewMode, referenceFrame, referenceMaskFrame, referenceResultFrame, solidPreviewColor]);
+
+  useEffect(() => {
+    if (!animationFrames.length) {
+      setAnimationFrameIndex(0);
+      return;
+    }
+
+    setAnimationFrameIndex((current) => Math.min(current, animationFrames.length - 1));
+  }, [animationFrames.length]);
+
+  useEffect(() => {
+    const frame = animationFrames[animationFrameIndex];
+    if (!frame) {
+      return;
+    }
+
+    drawCanvas(resultAnimationCanvasRef.current, frame.image);
+  }, [animationFrameIndex, animationFrames]);
+
+  useEffect(() => {
+    if (
+      !animationPlaying ||
+      resultPreviewMode !== 'animation' ||
+      animationFrames.length <= 1
+    ) {
+      return;
+    }
+
+    const playbackFps = Math.min(Math.max(framesPerSecond, 1), 24);
+    const interval = window.setInterval(() => {
+      setAnimationFrameIndex((current) => (current + 1) % animationFrames.length);
+    }, Math.round(1000 / playbackFps));
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [animationFrames.length, animationPlaying, framesPerSecond, resultPreviewMode]);
 
   useEffect(() => {
     if (!hasInitializedInvalidationRef.current) {
@@ -704,12 +822,40 @@ function App() {
 
       <main className="app-card">
         <section className="hero">
-          <p className="eyebrow">本地处理 · 纯前端扣像 · GitHub Pages 友好</p>
-          <h1>视频转序列帧表 2.0</h1>
-          <p className="hero-copy">
-            可以直接生成普通序列图，也可以先在参考帧中点击背景颜色，
-            再批量执行浏览器端 ChromaKey 抠像并导出透明结果。
-          </p>
+          {/* <div className="hero-brand">
+            <img
+              className="hero-brand__avatar"
+              src={BRAND_ASSET_PATH}
+              alt="mowangblog 官方防伪标识"
+            />
+            <div className="hero-brand__info">
+              <p className="eyebrow">今天又被Godot打了</p>
+              
+            </div>
+          </div> */}
+          <h1 className="hero-title">
+            <span className="hero-title__main">视频转序列帧表</span>
+            <span className="hero-title__version">2.0</span>
+          </h1>
+          <div className="hero-support-row">
+            <p className="hero-copy">永久免费工具，欢迎一键三连➕关注支持更新。</p>
+            <div className="hero-links">
+              {SUPPORT_LINKS.map((link) => (
+                <a
+                  key={link.label}
+                  className={`hero-link hero-link--${link.id}`}
+                  href={link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="hero-link__icon" aria-hidden="true">
+                    <SupportLogo platform={link.id} />
+                  </span>
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          </div>
         </section>
 
         <section className={`workspace-grid ${videoMeta ? '' : 'workspace-grid--single'}`}>
@@ -1110,10 +1256,75 @@ function App() {
               </span>
             </div>
 
-            {result ? (
+            <div className="segmented-control segmented-control--result">
+              <button
+                className={`segmented-button ${resultPreviewMode === 'sheet' ? 'is-active' : ''}`}
+                type="button"
+                onClick={() => setResultPreviewMode('sheet')}
+              >
+                序列图
+              </button>
+              <button
+                className={`segmented-button ${resultPreviewMode === 'animation' ? 'is-active' : ''}`}
+                disabled={!animationFrames.length}
+                type="button"
+                onClick={() => setResultPreviewMode('animation')}
+              >
+                动画预览
+              </button>
+            </div>
+
+            {result && resultPreviewMode === 'sheet' ? (
               <div className="preview-wrap">
                 <img alt="生成的序列帧表预览" className="preview-image" src={result.objectUrl} />
               </div>
+            ) : result && resultPreviewMode === 'animation' ? (
+              <>
+                <div
+                  className={`preview-wrap preview-wrap--animation ${
+                    resultTransparent ? 'preview-wrap--transparent' : 'preview-wrap--solid'
+                  }`}
+                >
+                  <canvas
+                    ref={resultAnimationCanvasRef}
+                    aria-label="序列帧动画预览"
+                    className="preview-canvas"
+                  />
+                </div>
+
+                <div className="animation-toolbar">
+                  <div className="animation-meta">
+                    <strong>
+                      第 {Math.min(animationFrameIndex + 1, animationFrames.length)} / {animationFrames.length} 帧
+                    </strong>
+                    <span>
+                      {animationFrames[animationFrameIndex]
+                        ? `${animationFrames[animationFrameIndex].label} · ${Math.min(Math.max(framesPerSecond, 1), 24)} FPS 预览`
+                        : '等待动画帧'}
+                    </span>
+                  </div>
+
+                  <div className="animation-actions">
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setAnimationPlaying((current) => !current)}
+                    >
+                      {animationPlaying ? '暂停' : '播放'}
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => {
+                        setAnimationFrameIndex(0);
+                        setAnimationPlaying(true);
+                      }}
+                    >
+                      重播
+                    </button>
+                  </div>
+                </div>
+              </>
             ) : (
               <div className="preview-empty">
                 生成完成后，这里会显示当前序列图效果。
@@ -1186,6 +1397,21 @@ function App() {
           </div>
         </section>
         ) : null}
+
+        <footer className="app-footer">
+          <div className="app-footer__brand">
+            <img
+              className="app-footer__avatar"
+              src={BRAND_ASSET_PATH}
+              alt="mowangblog 版权标识"
+            />
+            <div className="app-footer__copy">
+              <strong>© {currentYear} 今天又被Godot打了</strong>
+              <span>视频转序列帧表</span>
+            </div>
+          </div>
+          <p className="app-footer__note">永久免费工具，欢迎一键三连➕关注支持更新。</p>
+        </footer>
       </main>
     </div>
   );
