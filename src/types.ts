@@ -9,7 +9,7 @@ export type BackgroundMode = 'none' | 'color-key';
 
 export type ExportMode = 'sheet' | 'transparent-sheet' | 'transparent-frames-zip';
 
-export type PreviewMode = 'result' | 'mask';
+export type PreviewMode = 'result' | 'mask' | 'solid';
 
 export type KeyAlgorithm = 'enhanced' | 'classic';
 

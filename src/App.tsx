@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  BackgroundMode,
   ColorKeyOptions,
   ColorSample,
   ExportMode,
@@ -37,13 +36,13 @@ const DEFAULT_FRAME_COUNT = 12;
 const DEFAULT_COLUMNS = 4;
 const DEFAULT_GAP = 8;
 const DEFAULT_BG = '#ffffff';
-const DEFAULT_BACKGROUND_MODE: BackgroundMode = 'color-key';
 const DEFAULT_KEY_ALGORITHM: KeyAlgorithm = 'enhanced';
 const DEFAULT_TOLERANCE = 28;
 const DEFAULT_SOFTNESS = 14;
 const DEFAULT_DESPILL = 50;
 const DEFAULT_EDGE_RADIUS = 22;
 const DEFAULT_SAMPLE_RADIUS = 6;
+const DEFAULT_SOLID_PREVIEW_BG = '#111827';
 
 type SamplePoint = {
   x: number;
@@ -74,6 +73,7 @@ function drawCanvas(
   target: HTMLCanvasElement | null,
   source: HTMLCanvasElement | null,
   marker?: SamplePoint | null,
+  backgroundFill?: string,
 ): void {
   if (!target || !source) {
     return;
@@ -88,6 +88,12 @@ function drawCanvas(
   }
 
   context.clearRect(0, 0, target.width, target.height);
+
+  if (backgroundFill) {
+    context.fillStyle = backgroundFill;
+    context.fillRect(0, 0, target.width, target.height);
+  }
+
   context.drawImage(source, 0, 0);
 
   if (!marker) {
@@ -122,7 +128,6 @@ function App() {
   const [gap, setGap] = useState(DEFAULT_GAP);
   const [backgroundColor, setBackgroundColor] = useState(DEFAULT_BG);
   const [includeTimestamps, setIncludeTimestamps] = useState(false);
-  const [backgroundMode, setBackgroundMode] = useState<BackgroundMode>(DEFAULT_BACKGROUND_MODE);
   const [algorithm, setAlgorithm] = useState<KeyAlgorithm>(DEFAULT_KEY_ALGORITHM);
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
   const [softness, setSoftness] = useState(DEFAULT_SOFTNESS);
@@ -138,6 +143,7 @@ function App() {
   const [samplePoint, setSamplePoint] = useState<SamplePoint | null>(null);
   const [colorSample, setColorSample] = useState<ColorSample | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>('result');
+  const [solidPreviewColor, setSolidPreviewColor] = useState(DEFAULT_SOLID_PREVIEW_BG);
   const [previewExportMode, setPreviewExportMode] = useState<Exclude<ExportMode, 'transparent-frames-zip'>>(
     'transparent-sheet',
   );
@@ -216,7 +222,7 @@ function App() {
     videoMeta &&
       videoUrl &&
       !isRendering &&
-      (backgroundMode === 'none' || colorKeyOptions),
+      colorKeyOptions,
   );
   const hasGeneratedAssets = Boolean(extractedFrames?.length);
   const canExportTransparent = Boolean(processedFrames?.length);
@@ -367,7 +373,7 @@ function App() {
       return;
     }
 
-    if (backgroundMode !== 'color-key' || !colorKeyOptions) {
+    if (!colorKeyOptions) {
       setReferenceResultFrame(referenceFrame);
       setReferenceMaskFrame(null);
       return;
@@ -380,7 +386,7 @@ function App() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '参考帧预览失败。');
     }
-  }, [backgroundMode, colorKeyOptions, referenceFrame]);
+  }, [colorKeyOptions, referenceFrame]);
 
   useEffect(() => {
     drawCanvas(referenceCanvasRef.current, referenceFrame, samplePoint);
@@ -391,8 +397,14 @@ function App() {
       previewMode === 'mask'
         ? referenceMaskFrame
         : referenceResultFrame ?? referenceFrame;
-    drawCanvas(previewCanvasRef.current, source);
-  }, [previewMode, referenceFrame, referenceMaskFrame, referenceResultFrame]);
+
+    drawCanvas(
+      previewCanvasRef.current,
+      source,
+      undefined,
+      previewMode === 'solid' ? solidPreviewColor : undefined,
+    );
+  }, [previewMode, referenceFrame, referenceMaskFrame, referenceResultFrame, solidPreviewColor]);
 
   useEffect(() => {
     if (!hasInitializedInvalidationRef.current) {
@@ -408,17 +420,13 @@ function App() {
   }, [
     algorithm,
     backgroundColor,
-    backgroundMode,
     colorSample?.hex,
     columns,
     despill,
     despillEnabled,
     edgeRadius,
-    extractedFrames,
     gap,
     includeTimestamps,
-    processedFrames,
-    result,
     samplePoint?.x,
     samplePoint?.y,
     sampleRadius,
@@ -451,7 +459,6 @@ function App() {
       setVideoMeta(asset.meta);
       setVideoUrl(asset.url);
       setReferenceTime(Number((asset.meta.duration / 2).toFixed(3)));
-      setPreviewExportMode(backgroundMode === 'color-key' ? 'transparent-sheet' : 'sheet');
       setStatus('视频已就绪，先在参考帧上点一下背景颜色，再生成结果。');
     } catch (nextError) {
       setVideoMeta(null);
@@ -474,7 +481,7 @@ function App() {
       throw new Error('请先上传一个视频文件。');
     }
 
-    if (backgroundMode === 'color-key' && !colorKeyOptions) {
+    if (!colorKeyOptions) {
       throw new Error('请先在参考帧上点击背景颜色。');
     }
 
@@ -495,17 +502,13 @@ function App() {
         },
       );
 
-      let nextProcessedFrames: ProcessedFrame[] | null = null;
+      const nextProcessedFrames: ProcessedFrame[] = [];
 
-      if (backgroundMode === 'color-key' && colorKeyOptions) {
-        nextProcessedFrames = [];
-
-        for (const [index, frame] of frames.entries()) {
-          setStatus(`正在执行 ChromaKey 抠像 ${index + 1}/${frames.length}...`);
-          nextProcessedFrames.push(processExtractedFrame(frame, colorKeyOptions));
-          if (index < frames.length - 1) {
-            await nextFrame();
-          }
+      for (const [index, frame] of frames.entries()) {
+        setStatus(`正在执行 ChromaKey 抠像 ${index + 1}/${frames.length}...`);
+        nextProcessedFrames.push(processExtractedFrame(frame, colorKeyOptions));
+        if (index < frames.length - 1) {
+          await nextFrame();
         }
       }
 
@@ -571,9 +574,7 @@ function App() {
   async function handleGeneratePreview(): Promise<void> {
     try {
       const assets = await ensureAssets();
-      const defaultMode =
-        backgroundMode === 'color-key' && assets.processed ? 'transparent-sheet' : 'sheet';
-      await renderSheetPreview(defaultMode, assets);
+      await renderSheetPreview('transparent-sheet', assets);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '生成失败。');
       setStatus('生成失败，请调整参数后重试。');
@@ -614,7 +615,7 @@ function App() {
   }
 
   function handleReferenceCanvasClick(event: React.MouseEvent<HTMLCanvasElement>): void {
-    if (backgroundMode !== 'color-key' || !referenceFrame || !referenceCanvasRef.current) {
+    if (!referenceFrame || !referenceCanvasRef.current) {
       return;
     }
 
@@ -707,38 +708,8 @@ function App() {
 
           <div className="panel controls-panel">
             <div className="panel-head">
-              <h2>2. 输出与背景模式</h2>
-              <span>{backgroundMode === 'color-key' ? 'ChromaKey 已启用' : '普通序列表模式'}</span>
-            </div>
-
-            <div className="mode-switch">
-              <label className={`mode-pill ${backgroundMode === 'color-key' ? 'is-active' : ''}`}>
-                <input
-                  checked={backgroundMode === 'color-key'}
-                  name="background-mode"
-                  type="radio"
-                  onChange={() => {
-                    setBackgroundMode('color-key');
-                    setPreviewExportMode('transparent-sheet');
-                    setStatus('已切换到背景扣像模式，请选择背景颜色。');
-                  }}
-                />
-                <span>点选背景色扣像</span>
-              </label>
-
-              <label className={`mode-pill ${backgroundMode === 'none' ? 'is-active' : ''}`}>
-                <input
-                  checked={backgroundMode === 'none'}
-                  name="background-mode"
-                  type="radio"
-                  onChange={() => {
-                    setBackgroundMode('none');
-                    setPreviewExportMode('sheet');
-                    setStatus('已切换到普通序列表模式。');
-                  }}
-                />
-                <span>无抠像</span>
-              </label>
+              <h2>2. 抽帧设置</h2>
+              <span>先确定抽几帧，再到下面的预览区直接取背景色。</span>
             </div>
 
             <div className="control-grid">
@@ -752,40 +723,6 @@ function App() {
                   onChange={(event) => setFrameCount(Number(event.target.value) || 1)}
                 />
               </label>
-
-              <label className="field">
-                <span>每行列数</span>
-                <input
-                  min={1}
-                  max={8}
-                  type="number"
-                  value={columns}
-                  onChange={(event) => setColumns(Number(event.target.value) || 1)}
-                />
-              </label>
-
-              <label className="field">
-                <span>帧间距</span>
-                <input
-                  min={0}
-                  max={48}
-                  type="number"
-                  value={gap}
-                  onChange={(event) => setGap(Number(event.target.value) || 0)}
-                />
-              </label>
-
-              <label className="field">
-                <span>普通模式背景色</span>
-                <div className="color-field">
-                  <input
-                    type="color"
-                    value={backgroundColor}
-                    onChange={(event) => setBackgroundColor(event.target.value)}
-                  />
-                  <code>{backgroundColor}</code>
-                </div>
-              </label>
             </div>
 
             <label className="toggle">
@@ -798,9 +735,9 @@ function App() {
             </label>
 
             <div className="option-card">
-              <span>当前输出</span>
+              <span>当前流程</span>
               <strong>
-                {columns} 列 · 间距 {gap}px · {backgroundMode === 'color-key' ? '透明导出优先' : '普通 PNG 导出'}
+                上传视频 → 在预览里点背景颜色 → 调边缘参数 → 生成结果 → 再决定导出列数
               </strong>
             </div>
 
@@ -821,7 +758,7 @@ function App() {
           <div className="panel-head panel-head--stack">
             <div>
               <h2>3. 抠图算法与参考帧</h2>
-              <span>参考你给的模式，先选算法，再在参考帧上点一下背景颜色。</span>
+              <span>选算法后，直接在左侧预览图里点击背景颜色；右侧可切换结果、蒙版和纯色底检查。</span>
             </div>
           </div>
 
@@ -853,12 +790,7 @@ function App() {
             </label>
           </div>
 
-          {backgroundMode === 'none' ? (
-            <div className="hint-card">
-              当前处于“无抠像”模式。你仍然可以生成普通序列表；如果要导出透明图，请切换回“点选背景色扣像”。
-            </div>
-          ) : (
-            <>
+          <>
               <div className="reference-toolbar">
                 <label className="range-block">
                   <span>参考帧时间</span>
@@ -893,7 +825,7 @@ function App() {
                     <span>
                       {samplePoint
                         ? `位置: (${samplePoint.x}, ${samplePoint.y})`
-                        : '请在左侧原图中点击一个背景点'}
+                        : '请直接在左侧预览图里点击一个背景点'}
                     </span>
                   </div>
                 </div>
@@ -944,10 +876,29 @@ function App() {
                       >
                         Alpha 蒙版
                       </button>
+                      <button
+                        className={`segmented-button ${previewMode === 'solid' ? 'is-active' : ''}`}
+                        disabled={!referenceResultFrame}
+                        type="button"
+                        onClick={() => setPreviewMode('solid')}
+                      >
+                        纯色底
+                      </button>
                     </div>
                   </div>
                   <div className="canvas-surface checkerboard">
                     <canvas ref={previewCanvasRef} className="preview-canvas" />
+                  </div>
+                  <div className="solid-preview-bar">
+                    <span>纯色底检查色</span>
+                    <div className="color-field color-field--compact">
+                      <input
+                        type="color"
+                        value={solidPreviewColor}
+                        onChange={(event) => setSolidPreviewColor(event.target.value)}
+                      />
+                      <code>{solidPreviewColor}</code>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1040,8 +991,7 @@ function App() {
                   </div>
                 </div>
               </div>
-            </>
-          )}
+          </>
         </section>
 
         <section className="result-grid">
@@ -1088,8 +1038,44 @@ function App() {
             </div>
 
             <p className="download-copy">
-              第二版支持普通序列表、透明序列表，以及逐帧透明 PNG ZIP。
+              导出时再决定列数和间距。普通序列表用于对比，透明导出用于正式使用。
             </p>
+
+            <div className="export-config-grid">
+              <label className="field">
+                <span>导出列数</span>
+                <input
+                  min={1}
+                  max={8}
+                  type="number"
+                  value={columns}
+                  onChange={(event) => setColumns(Number(event.target.value) || 1)}
+                />
+              </label>
+
+              <label className="field">
+                <span>导出间距</span>
+                <input
+                  min={0}
+                  max={48}
+                  type="number"
+                  value={gap}
+                  onChange={(event) => setGap(Number(event.target.value) || 0)}
+                />
+              </label>
+
+              <label className="field export-config-grid__full">
+                <span>普通序列表背景色</span>
+                <div className="color-field">
+                  <input
+                    type="color"
+                    value={backgroundColor}
+                    onChange={(event) => setBackgroundColor(event.target.value)}
+                  />
+                  <code>{backgroundColor}</code>
+                </div>
+              </label>
+            </div>
 
             <div className="export-actions">
               <button
@@ -1103,7 +1089,7 @@ function App() {
 
               <button
                 className="secondary-button secondary-button--violet"
-                disabled={!videoMeta || isRendering || backgroundMode !== 'color-key' || !colorKeyOptions}
+                disabled={!videoMeta || isRendering || !colorKeyOptions}
                 type="button"
                 onClick={() => void handleDownloadSheet('transparent-sheet')}
               >
@@ -1112,7 +1098,7 @@ function App() {
 
               <button
                 className="secondary-button secondary-button--emerald"
-                disabled={!videoMeta || isRendering || backgroundMode !== 'color-key' || !colorKeyOptions}
+                disabled={!videoMeta || isRendering || !colorKeyOptions}
                 type="button"
                 onClick={() => void handleDownloadZip()}
               >
@@ -1121,9 +1107,7 @@ function App() {
             </div>
 
             <div className="hint-card hint-card--soft">
-              {backgroundMode === 'color-key'
-                ? '透明导出会保留真正的 Alpha 通道，不再填充实体背景色。'
-                : '当前处于普通模式，透明导出按钮会在生成时提示你先切换到背景扣像模式。'}
+              透明导出会保留真正的 Alpha 通道；如果想检查边缘是否干净，可以先切回上面的“纯色底”预览。
             </div>
           </div>
         </section>

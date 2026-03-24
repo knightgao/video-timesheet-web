@@ -323,6 +323,16 @@ button {
   background: transparent;
 }
 
+.color-field--compact {
+  min-width: 170px;
+  padding: 6px 10px;
+}
+
+.color-field--compact input {
+  width: 36px;
+  height: 36px;
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -502,6 +512,18 @@ button {
   font-size: 0.92rem;
 }
 
+.solid-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.solid-preview-bar span {
+  color: #5b6472;
+  font-weight: 700;
+}
+
 .reference-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -675,6 +697,16 @@ button {
   color: #52616e;
 }
 
+.export-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.export-config-grid__full {
+  grid-column: 1 / -1;
+}
+
 .export-actions {
   display: grid;
   gap: 12px;
@@ -707,7 +739,8 @@ button {
 
   .mode-switch,
   .control-grid,
-  .stats-grid {
+  .stats-grid,
+  .export-config-grid {
     grid-template-columns: 1fr;
   }
 
@@ -737,5 +770,10 @@ button {
 
   .sample-badge {
     width: 100%;
+  }
+
+  .solid-preview-bar {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
