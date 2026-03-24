@@ -37,4 +37,4 @@ npm run build
 
 Pages 地址格式：
 
-`https://<github-username>.github.io/video-timesheet-web/`
+`https://mowangblog.github.io/video-timesheet-web/`
