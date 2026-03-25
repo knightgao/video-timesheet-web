@@ -323,9 +323,6 @@ function App() {
   const [exportPreset, setExportPreset] = useState<ExportPresetValue>('original');
   const [tolerance, setTolerance] = useState(DEFAULT_TOLERANCE);
   const [softness, setSoftness] = useState(DEFAULT_SOFTNESS);
-  const [despill, setDespill] = useState(DEFAULT_DESPILL);
-  const [edgeRadius, setEdgeRadius] = useState(DEFAULT_EDGE_RADIUS);
-  const [sampleRadius, setSampleRadius] = useState(DEFAULT_SAMPLE_RADIUS);
   const [smoothing, setSmoothing] = useState(true);
   const [despillEnabled, setDespillEnabled] = useState(true);
   const [referenceTime, setReferenceTime] = useState(0);
@@ -516,19 +513,16 @@ function App() {
       sample: colorSample,
       tolerance,
       softness,
-      despill,
-      sampleRadius,
-      edgeRadius,
+      despill: DEFAULT_DESPILL,
+      sampleRadius: DEFAULT_SAMPLE_RADIUS,
+      edgeRadius: DEFAULT_EDGE_RADIUS,
       smoothing,
       despillEnabled,
       algorithm: DEFAULT_KEY_ALGORITHM,
     };
   }, [
     colorSample,
-    despill,
     despillEnabled,
-    edgeRadius,
-    sampleRadius,
     smoothing,
     softness,
     tolerance,
@@ -779,11 +773,13 @@ function App() {
     }
 
     try {
-      setColorSample(sampleCanvasColor(referenceFrame, samplePoint.x, samplePoint.y, sampleRadius));
+      setColorSample(
+        sampleCanvasColor(referenceFrame, samplePoint.x, samplePoint.y, DEFAULT_SAMPLE_RADIUS),
+      );
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '颜色取样失败。');
     }
-  }, [referenceFrame, samplePoint, sampleRadius]);
+  }, [referenceFrame, samplePoint]);
 
   useEffect(() => {
     if (!referenceFrame) {
@@ -962,13 +958,10 @@ function App() {
     cropArea.leftPercent,
     cropArea.topPercent,
     cropArea.widthPercent,
-    despill,
     despillEnabled,
-    edgeRadius,
     framesPerSecond,
     samplePoint?.x,
     samplePoint?.y,
-    sampleRadius,
     segmentEnd,
     segmentStart,
     smoothing,
@@ -1802,7 +1795,7 @@ function App() {
               <div className="advanced-panel">
                 <div className="advanced-head">
                   <h3>高级参数设置</h3>
-                  <span>容差、羽化、采样半径、去溢色都会即时影响右侧预览。</span>
+                  <span>容差、羽化、边缘平滑、去溢色都会即时影响右侧预览。</span>
                 </div>
 
                 <div className="advanced-grid">
@@ -1828,42 +1821,6 @@ function App() {
                       onChange={(event) => setSoftness(Number(event.target.value))}
                     />
                     <small>控制边缘从透明到不透明的过渡长度。</small>
-                  </label>
-
-                  <label className="range-field">
-                    <span>边缘去溢色强度: {despill}%</span>
-                    <input
-                      max={100}
-                      min={0}
-                      type="range"
-                      value={despill}
-                      onChange={(event) => setDespill(Number(event.target.value))}
-                    />
-                    <small>用于压掉边缘残留的背景色，值越大处理越明显。</small>
-                  </label>
-
-                  <label className="range-field">
-                    <span>边缘检测半径: {edgeRadius}px</span>
-                    <input
-                      max={60}
-                      min={0}
-                      type="range"
-                      value={edgeRadius}
-                      onChange={(event) => setEdgeRadius(Number(event.target.value))}
-                    />
-                    <small>控制去溢色主要作用在多宽的边缘区域内。</small>
-                  </label>
-
-                  <label className="range-field">
-                    <span>颜色采样半径: {sampleRadius}px</span>
-                    <input
-                      max={20}
-                      min={0}
-                      type="range"
-                      value={sampleRadius}
-                      onChange={(event) => setSampleRadius(Number(event.target.value))}
-                    />
-                    <small>取样时会平均周围像素，适合带轻微噪点的背景。</small>
                   </label>
 
                   <div className="toggle-group">

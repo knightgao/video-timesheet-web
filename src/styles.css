@@ -688,7 +688,7 @@ button {
 .crop-canvas-surface {
   display: grid;
   place-items: center;
-  padding: 18px;
+  /* padding: 18px; */
 }
 
 .crop-preview-canvas {
@@ -1128,7 +1128,7 @@ button {
   min-height: 260px;
   border-radius: 20px;
   border: 1px solid rgba(113, 92, 255, 0.12);
-  overflow: hidden;
+  overflow: auto;
   background: #eef1fb;
 }
 
@@ -1194,12 +1194,16 @@ button {
 .toggle-group {
   display: grid;
   gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .toggle-card {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   min-height: 52px;
   padding: 0 14px;
   border-radius: 16px;
@@ -1263,7 +1267,7 @@ button {
   place-items: center;
   min-height: 320px;
   padding: 20px;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .preview-wrap--solid {
@@ -1441,7 +1445,8 @@ button {
   .control-grid,
   .stats-grid,
   .export-config-grid,
-  .crop-grid {
+  .crop-grid,
+  .toggle-group {
     grid-template-columns: 1fr;
   }
 
