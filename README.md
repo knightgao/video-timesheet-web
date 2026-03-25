@@ -37,3 +37,7 @@ npm run build
 4. 后续每次 push 到 `main` 都会自动触发部署
 
 Pages 地址格式：[https://mowangblog.github.io/video-timesheet-web/](https://mowangblog.github.io/video-timesheet-web/)
+
+## 许可证
+
+本项目使用 [GNU General Public License v3.0](./LICENSE) 进行授权，SPDX 标识为 `GPL-3.0-only`。
