@@ -2253,7 +2253,7 @@ function App() {
           <section ref={spinePanelRef} className="result-grid spine-grid">
             <div className="panel preview-panel">
               <div className="panel-head">
-                <h2>6. Spine 动画工作区</h2>
+                <h2>7. Spine 动画工作区</h2>
                 <span>
                   {spineDraft.transparent ? '透明帧优先' : '普通帧'} · {spineDraft.width} × {spineDraft.height}
                 </span>
