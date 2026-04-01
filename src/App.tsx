@@ -19,6 +19,13 @@ import {
   sampleCanvasColor,
 } from './lib/chromaKey';
 import {
+  applyBiRefNet,
+  buildMaskResult,
+  ensureBiRefNet,
+  inferBiRefNet,
+  type RawMaskData,
+} from './lib/birefnet';
+import {
   buildTransparentFramesZip,
   getBaseFileName,
   getGifFileName,
@@ -106,6 +113,7 @@ type SheetPreviewResult = {
 
 type ResultPreviewMode = 'sheet' | 'animation';
 type SpinePreviewMode = 'animation';
+type BgKeyMode = 'color-key' | 'birefnet';
 
 type SupportPlatform = (typeof SUPPORT_LINKS)[number]['id'];
 type ExportPresetValue = (typeof EXPORT_PRESETS)[number]['value'];
@@ -394,6 +402,14 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
   const [isReferenceLoading, setIsReferenceLoading] = useState(false);
+  const [bgKeyMode, setBgKeyMode] = useState<BgKeyMode>('color-key');
+  const [birefnetReady, setBirefnetReady] = useState(false);
+  const [birefnetStatus, setBirefnetStatus] = useState('');
+  const [isBiRefNetProcessing, setIsBiRefNetProcessing] = useState(false);
+  const [maskThreshold, setMaskThreshold] = useState(128);
+  const [maskFillHoles, setMaskFillHoles] = useState(true);
+  const [colorKeyFillHoles, setColorKeyFillHoles] = useState(true);
+  const [birefnetRaw, setBirefnetRaw] = useState<RawMaskData | null>(null);
   const [readerReady, setReaderReady] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [extractedFrames, setExtractedFrames] = useState<ExtractedFrame[] | null>(null);
@@ -665,6 +681,7 @@ function App() {
     latestVideoUrlRef.current = videoUrl;
   }, [videoUrl]);
 
+
   useEffect(() => {
     latestResultRef.current = result;
   }, [result]);
@@ -877,12 +894,63 @@ function App() {
     }
   }, [referenceFrame, samplePoint]);
 
+  // AI inference (expensive) — only re-runs when the frame or mode changes.
+  useEffect(() => {
+    if (!referenceFrame || bgKeyMode !== 'birefnet') {
+      setBirefnetRaw(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsBiRefNetProcessing(true);
+    setBirefnetStatus('');
+    setReferenceResultFrame(null);
+    setReferenceMaskFrame(null);
+    setBirefnetRaw(null);
+
+    void ensureBiRefNet((msg) => {
+      if (!cancelled) setBirefnetStatus(msg);
+    })
+      .then(() => {
+        if (!cancelled) setBirefnetReady(true);
+        if (cancelled) return null;
+        return inferBiRefNet(referenceFrame);
+      })
+      .then((raw) => {
+        if (!raw || cancelled) return;
+        setBirefnetRaw(raw);
+        setBirefnetStatus('AI 抠像完成。');
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : '参考帧 AI 抠像处理失败。');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsBiRefNetProcessing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bgKeyMode, referenceFrame]);
+
+  // Threshold post-processing (cheap / synchronous) — re-runs instantly on slider change.
+  useEffect(() => {
+    if (!birefnetRaw || !referenceFrame || bgKeyMode !== 'birefnet') return;
+    const result = buildMaskResult(referenceFrame, birefnetRaw, maskThreshold, maskFillHoles);
+    setReferenceResultFrame(result.image);
+    setReferenceMaskFrame(result.mask);
+  }, [bgKeyMode, birefnetRaw, maskFillHoles, maskThreshold, referenceFrame]);
+
+  // Color-key preview
   useEffect(() => {
     if (!referenceFrame) {
       setReferenceResultFrame(null);
       setReferenceMaskFrame(null);
       return;
     }
+    if (bgKeyMode === 'birefnet') return;
 
     if (!colorKeyOptions) {
       setReferenceResultFrame(referenceFrame);
@@ -891,13 +959,13 @@ function App() {
     }
 
     try {
-      const preview = applyColorKey(referenceFrame, colorKeyOptions);
+      const preview = applyColorKey(referenceFrame, colorKeyOptions, colorKeyFillHoles);
       setReferenceResultFrame(preview.image);
       setReferenceMaskFrame(preview.mask);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '参考帧预览失败。');
     }
-  }, [colorKeyOptions, referenceFrame]);
+  }, [bgKeyMode, colorKeyFillHoles, colorKeyOptions, referenceFrame]);
 
   useEffect(() => {
     drawCanvas(referenceCanvasRef.current, referenceFrame, samplePoint);
@@ -1167,6 +1235,7 @@ function App() {
 
     clearGeneratedAssets('参数已更新，请重新生成最新结果。');
   }, [
+    bgKeyMode,
     colorSample?.hex,
     cropArea.heightPercent,
     cropArea.leftPercent,
@@ -1265,6 +1334,35 @@ function App() {
         },
       );
 
+      if (bgKeyMode === 'birefnet') {
+        setStatus('正在确保抠像模型就绪...');
+        await ensureBiRefNet((msg) => setStatus(msg));
+        setBirefnetReady(true);
+
+        const nextProcessedFrames: ProcessedFrame[] = [];
+
+        for (const [index, frame] of frames.entries()) {
+          setStatus(`正在执行 AI 抠像 ${index + 1}/${frames.length}...`);
+          const preview = await applyBiRefNet(frame.image, maskThreshold, maskFillHoles);
+          nextProcessedFrames.push({
+            ...frame,
+            processedImage: preview.image,
+            maskImage: preview.mask,
+          });
+          if (index < frames.length - 1) {
+            await nextFrame();
+          }
+        }
+
+        setExtractedFrames(frames);
+        setProcessedFrames(nextProcessedFrames);
+
+        return {
+          frames,
+          processed: nextProcessedFrames,
+        };
+      }
+
       if (!colorKeyOptions) {
         setExtractedFrames(frames);
         setProcessedFrames(null);
@@ -1279,7 +1377,7 @@ function App() {
 
       for (const [index, frame] of frames.entries()) {
         setStatus(`正在执行 ChromaKey 抠像 ${index + 1}/${frames.length}...`);
-        nextProcessedFrames.push(processExtractedFrame(frame, colorKeyOptions));
+        nextProcessedFrames.push(processExtractedFrame(frame, colorKeyOptions, colorKeyFillHoles));
         if (index < frames.length - 1) {
           await nextFrame();
         }
@@ -1964,11 +2062,72 @@ function App() {
           <div className="panel-head panel-head--stack">
             <div>
               <h2>4. 参考帧与抠像预览</h2>
-              <span>直接在左侧预览图里点击背景颜色；右侧可切换结果、蒙版和纯色底检查。</span>
+              <span>
+                {bgKeyMode === 'birefnet'
+                  ? 'AI 自动识别主体，无需手动取色；右侧可切换结果、蒙版和纯色底检查。'
+                  : '直接在左侧预览图里点击背景颜色；右侧可切换结果、蒙版和纯色底检查。'}
+              </span>
             </div>
           </div>
 
           <>
+              {/* 抠像模式切换 */}
+              <div className="bg-mode-bar">
+                <div className="segmented-control">
+                  <button
+                    className={`segmented-button ${bgKeyMode === 'color-key' ? 'is-active' : ''}`}
+                    type="button"
+                    onClick={() => setBgKeyMode('color-key')}
+                  >
+                    色键抠像
+                  </button>
+                  <button
+                    className={`segmented-button ${bgKeyMode === 'birefnet' ? 'is-active' : ''}`}
+                    type="button"
+                    onClick={() => setBgKeyMode('birefnet')}
+                  >
+                    AI 智能抠像
+                  </button>
+                </div>
+
+                {bgKeyMode === 'birefnet' ? (
+                  <div className="birefnet-badge">
+                    {isBiRefNetProcessing ? (
+                      <span className="birefnet-badge__status birefnet-badge__status--loading">
+                        {birefnetStatus || '正在处理...'}
+                      </span>
+                    ) : birefnetReady ? (
+                      <span className="birefnet-badge__status birefnet-badge__status--ready">
+                        模型已就绪
+                      </span>
+                    ) : (
+                      <span className="birefnet-badge__status birefnet-badge__status--idle">
+                        首次使用将自动下载约 44 MB 模型
+                      </span>
+                    )}
+                    <label className="range-block range-block--inline">
+                      <span>蒙版阈值 <strong>{maskThreshold}</strong></span>
+                      <input
+                        max={255}
+                        min={0}
+                        step={1}
+                        type="range"
+                        value={maskThreshold}
+                        onChange={(e) => setMaskThreshold(Number(e.target.value))}
+                      />
+                    </label>
+                    <label className="checkbox-inline">
+                      <input
+                        checked={maskFillHoles}
+                        type="checkbox"
+                        onChange={(e) => setMaskFillHoles(e.target.checked)}
+                      />
+                      <span>填充内部空洞</span>
+                    </label>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="reference-toolbar">
                 <label className="range-block">
                   <span>参考帧时间</span>
@@ -1984,59 +2143,86 @@ function App() {
 
                 <div className="reference-meta">
                   <strong>{videoMeta ? formatTimestamp(referenceTime) : '00:00.000'}</strong>
-                  <span>{isReferenceLoading ? '参考帧更新中...' : `${formatTimestamp(segmentStart)} - ${formatTimestamp(segmentEnd)} 片段内取色`}</span>
+                  <span>
+                    {isReferenceLoading || isBiRefNetProcessing
+                      ? bgKeyMode === 'birefnet'
+                        ? (birefnetStatus || '参考帧处理中...')
+                        : '参考帧更新中...'
+                      : `${formatTimestamp(segmentStart)} - ${formatTimestamp(segmentEnd)} 片段内`}
+                  </span>
                 </div>
               </div>
 
-              <div className="sample-badge-row">
-                <div className="sample-badge">
-                  <span
-                    className="sample-swatch"
-                    style={{ backgroundColor: colorSample?.hex ?? '#e6e8f3' }}
-                  />
-                  <div>
-                    <strong>
-                      {colorSample
-                        ? `RGB(${colorSample.rgb.r}, ${colorSample.rgb.g}, ${colorSample.rgb.b})`
-                        : '未选择背景颜色'}
-                    </strong>
-                    <span>
-                      {samplePoint
-                        ? `位置: (${samplePoint.x}, ${samplePoint.y})`
-                        : '可直接生成普通序列图，或点击左侧预览图取背景色'}
-                    </span>
+              {bgKeyMode === 'color-key' ? (
+                <div className="sample-badge-row">
+                  <div className="sample-badge">
+                    <span
+                      className="sample-swatch"
+                      style={{ backgroundColor: colorSample?.hex ?? '#e6e8f3' }}
+                    />
+                    <div>
+                      <strong>
+                        {colorSample
+                          ? `RGB(${colorSample.rgb.r}, ${colorSample.rgb.g}, ${colorSample.rgb.b})`
+                          : '未选择背景颜色'}
+                      </strong>
+                      <span>
+                        {samplePoint
+                          ? `位置: (${samplePoint.x}, ${samplePoint.y})`
+                          : '可直接生成普通序列图，或点击左侧预览图取背景色'}
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => {
-                    setSamplePoint(null);
-                    setColorSample(null);
-                  }}
-                >
-                  清除颜色
-                </button>
-              </div>
+                  <label className="checkbox-inline">
+                    <input
+                      checked={colorKeyFillHoles}
+                      type="checkbox"
+                      onChange={(e) => setColorKeyFillHoles(e.target.checked)}
+                    />
+                    <span>填充内部空洞</span>
+                  </label>
+
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => {
+                      setSamplePoint(null);
+                      setColorSample(null);
+                    }}
+                  >
+                    清除颜色
+                  </button>
+                </div>
+              ) : null}
 
               <div className="reference-grid">
                 <div className="canvas-card">
                   <div className="canvas-head">
                     <div className="canvas-title">
                       <span>原图</span>
-                      <small>{samplePoint ? '已选背景点，可继续点击更换' : '点击背景取样'}</small>
+                      <small>
+                        {bgKeyMode === 'birefnet'
+                          ? 'AI 自动分割主体'
+                          : samplePoint ? '已选背景点，可继续点击更换' : '点击背景取样'}
+                      </small>
                     </div>
                   </div>
                   <div className="canvas-surface">
                     <canvas
                       ref={referenceCanvasRef}
-                      className="preview-canvas"
-                      onClick={handleReferenceCanvasClick}
+                      className={`preview-canvas ${bgKeyMode === 'color-key' ? 'preview-canvas--clickable' : ''}`}
+                      onClick={bgKeyMode === 'color-key' ? handleReferenceCanvasClick : undefined}
                     />
                   </div>
                   <div className="canvas-footer">
-                    <span>{samplePoint ? `当前取样点：(${samplePoint.x}, ${samplePoint.y})` : '点击原图任意背景区域开始取色'}</span>
+                    <span>
+                      {bgKeyMode === 'birefnet'
+                        ? '拖动上方滑块更换参考帧，AI 将自动重新分割'
+                        : samplePoint
+                          ? `当前取样点：(${samplePoint.x}, ${samplePoint.y})`
+                          : '点击原图任意背景区域开始取色'}
+                    </span>
                   </div>
                 </div>
 
@@ -2089,58 +2275,60 @@ function App() {
                 </div>
               </div>
 
-              <div className="advanced-panel">
-                <div className="advanced-head">
-                  <h3>高级参数设置</h3>
-                  <span>容差、羽化、边缘平滑、去溢色都会即时影响右侧预览。</span>
-                </div>
+              {bgKeyMode === 'color-key' ? (
+                <div className="advanced-panel">
+                  <div className="advanced-head">
+                    <h3>高级参数设置</h3>
+                    <span>容差、羽化、边缘平滑、去溢色都会即时影响右侧预览。</span>
+                  </div>
 
-                <div className="advanced-grid">
-                  <label className="range-field">
-                    <span>颜色容差: {tolerance}</span>
-                    <input
-                      max={120}
-                      min={0}
-                      type="range"
-                      value={tolerance}
-                      onChange={(event) => setTolerance(Number(event.target.value))}
-                    />
-                    <small>越大越容易把接近背景色的区域一起抠除。</small>
-                  </label>
-
-                  <label className="range-field">
-                    <span>羽化半径: {softness}px</span>
-                    <input
-                      max={60}
-                      min={0}
-                      type="range"
-                      value={softness}
-                      onChange={(event) => setSoftness(Number(event.target.value))}
-                    />
-                    <small>控制边缘从透明到不透明的过渡长度。</small>
-                  </label>
-
-                  <div className="toggle-group">
-                    <label className="toggle-card">
+                  <div className="advanced-grid">
+                    <label className="range-field">
+                      <span>颜色容差: {tolerance}</span>
                       <input
-                        checked={smoothing}
-                        type="checkbox"
-                        onChange={(event) => setSmoothing(event.target.checked)}
+                        max={120}
+                        min={0}
+                        type="range"
+                        value={tolerance}
+                        onChange={(event) => setTolerance(Number(event.target.value))}
                       />
-                      <span>边缘平滑</span>
+                      <small>越大越容易把接近背景色的区域一起抠除。</small>
                     </label>
 
-                    <label className="toggle-card">
+                    <label className="range-field">
+                      <span>羽化半径: {softness}px</span>
                       <input
-                        checked={despillEnabled}
-                        type="checkbox"
-                        onChange={(event) => setDespillEnabled(event.target.checked)}
+                        max={60}
+                        min={0}
+                        type="range"
+                        value={softness}
+                        onChange={(event) => setSoftness(Number(event.target.value))}
                       />
-                      <span>溢色移除</span>
+                      <small>控制边缘从透明到不透明的过渡长度。</small>
                     </label>
+
+                    <div className="toggle-group">
+                      <label className="toggle-card">
+                        <input
+                          checked={smoothing}
+                          type="checkbox"
+                          onChange={(event) => setSmoothing(event.target.checked)}
+                        />
+                        <span>边缘平滑</span>
+                      </label>
+
+                      <label className="toggle-card">
+                        <input
+                          checked={despillEnabled}
+                          type="checkbox"
+                          onChange={(event) => setDespillEnabled(event.target.checked)}
+                        />
+                        <span>溢色移除</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
 
               <div ref={chromaActionsRef} className="chroma-actions">
                 <button
@@ -2334,7 +2522,7 @@ function App() {
 
               <button
                 className="secondary-button secondary-button--emerald"
-                disabled={isRendering || !colorKeyOptions}
+                disabled={isRendering || (bgKeyMode === 'color-key' && !colorKeyOptions)}
                 type="button"
                 onClick={() => void handleDownloadZip()}
               >

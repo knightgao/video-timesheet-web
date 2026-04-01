@@ -1510,6 +1510,71 @@ button {
   }
 }
 
+/* ── BiRefNet / 抠像模式切换 ── */
+
+.bg-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 0 4px;
+}
+
+.birefnet-badge {
+  display: flex;
+  align-items: center;
+}
+
+.birefnet-badge__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 20px;
+  line-height: 1.4;
+}
+
+.birefnet-badge__status--idle {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.birefnet-badge__status--loading {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.birefnet-badge__status--loading::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  animation: birefnet-pulse 1.2s ease-in-out infinite;
+}
+
+.birefnet-badge__status--ready {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.birefnet-badge__status--ready::before {
+  content: '✓';
+  font-size: 0.72rem;
+}
+
+@keyframes birefnet-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.preview-canvas--clickable {
+  cursor: crosshair;
+}
+
 @media (max-width: 640px) {
   .app-card {
     width: min(100% - 16px, 100%);

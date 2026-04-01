@@ -6,7 +6,10 @@
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
     "noEmit": true,
-    "strict": true
+    "strict": true,
+    "paths": {
+      "@vitejs/plugin-react": ["./node_modules/@vitejs/plugin-react/dist/index"]
+    }
   },
   "include": ["vite.config.ts"]
 }

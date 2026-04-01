@@ -170,6 +170,7 @@ export function sampleCanvasColor(
 export function applyColorKey(
   source: HTMLCanvasElement,
   options: ColorKeyOptions,
+  fillHoles = false,
 ): {
   image: HTMLCanvasElement;
   mask: HTMLCanvasElement;
@@ -179,10 +180,12 @@ export function applyColorKey(
     throw new Error('无法读取原始帧图像。');
   }
 
-  const sourceImageData = sourceContext.getImageData(0, 0, source.width, source.height);
+  const w = source.width;
+  const h = source.height;
+  const sourceImageData = sourceContext.getImageData(0, 0, w, h);
   const sourcePixels = sourceImageData.data;
-  const outputCanvas = createCanvas(source.width, source.height);
-  const maskCanvas = createCanvas(source.width, source.height);
+  const outputCanvas = createCanvas(w, h);
+  const maskCanvas = createCanvas(w, h);
   const outputContext = outputCanvas.getContext('2d');
   const maskContext = maskCanvas.getContext('2d');
 
@@ -190,8 +193,8 @@ export function applyColorKey(
     throw new Error('无法创建抠像预览画布。');
   }
 
-  const outputImageData = outputContext.createImageData(source.width, source.height);
-  const maskImageData = maskContext.createImageData(source.width, source.height);
+  const outputImageData = outputContext.createImageData(w, h);
+  const maskImageData = maskContext.createImageData(w, h);
   const outputPixels = outputImageData.data;
   const maskPixels = maskImageData.data;
 
@@ -231,6 +234,28 @@ export function applyColorKey(
     maskPixels[index + 3] = 255;
   }
 
+  if (fillHoles) {
+    const pixelCount = w * h;
+    const alpha = new Uint8Array(pixelCount);
+    for (let i = 0; i < pixelCount; i++) alpha[i] = outputPixels[i * 4 + 3];
+
+    fillSilhouette(alpha, w, h);
+
+    for (let i = 0; i < pixelCount; i++) {
+      const v = alpha[i];
+      const di = i * 4;
+      if (v > outputPixels[di + 3]) {
+        outputPixels[di] = sourcePixels[di];
+        outputPixels[di + 1] = sourcePixels[di + 1];
+        outputPixels[di + 2] = sourcePixels[di + 2];
+      }
+      outputPixels[di + 3] = v;
+      maskPixels[di] = v;
+      maskPixels[di + 1] = v;
+      maskPixels[di + 2] = v;
+    }
+  }
+
   outputContext.putImageData(outputImageData, 0, 0);
   maskContext.putImageData(maskImageData, 0, 0);
 
@@ -243,12 +268,71 @@ export function applyColorKey(
 export function processExtractedFrame(
   frame: ExtractedFrame,
   options: ColorKeyOptions,
+  fillHoles = false,
 ): ProcessedFrame {
-  const processed = applyColorKey(frame.image, options);
+  const processed = applyColorKey(frame.image, options, fillHoles);
 
   return {
     ...frame,
     processedImage: processed.image,
     maskImage: processed.mask,
   };
+}
+
+/**
+ * BFS flood-fill from border through transparent pixels (alpha < 16).
+ * Interior pixels not reachable from the border are filled to 255.
+ * Boundary pixels (8-adjacent to background) keep their original alpha.
+ */
+function fillSilhouette(alpha: Uint8Array, w: number, h: number): void {
+  const total = w * h;
+  const visited = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  let head = 0;
+  let tail = 0;
+
+  const BG_THRESHOLD = 16;
+
+  const seed = (idx: number) => {
+    if (alpha[idx] < BG_THRESHOLD && !visited[idx]) {
+      visited[idx] = 1;
+      queue[tail++] = idx;
+    }
+  };
+
+  for (let x = 0; x < w; x++) {
+    seed(x);
+    seed((h - 1) * w + x);
+  }
+  for (let y = 1; y < h - 1; y++) {
+    seed(y * w);
+    seed(y * w + w - 1);
+  }
+
+  while (head < tail) {
+    const idx = queue[head++];
+    const x = idx % w;
+    const y = (idx - x) / w;
+    if (x > 0)     seed(idx - 1);
+    if (x < w - 1) seed(idx + 1);
+    if (y > 0)     seed(idx - w);
+    if (y < h - 1) seed(idx + w);
+  }
+
+  for (let i = 0; i < total; i++) {
+    if (visited[i]) continue;
+    const x = i % w;
+    const y = (i - x) / w;
+    if (
+      (x > 0     && visited[i - 1]) ||
+      (x < w - 1 && visited[i + 1]) ||
+      (y > 0     && visited[i - w]) ||
+      (y < h - 1 && visited[i + w]) ||
+      (x > 0     && y > 0     && visited[i - w - 1]) ||
+      (x < w - 1 && y > 0     && visited[i - w + 1]) ||
+      (x > 0     && y < h - 1 && visited[i + w - 1]) ||
+      (x < w - 1 && y < h - 1 && visited[i + w + 1])
+    ) continue;
+    alpha[i] = 255;
+  }
 }
